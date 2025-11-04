@@ -1,0 +1,13 @@
+archive: /local_raid1/sgoetz/STORE/DATASETS/CT_CLASSIFIER/ZIPS/20250826
+tables:
+  - brief_summaries
+  - calculated_values
+  - designs
+  - detailed_descriptions
+  - eligibilities
+  - responsible_parties
+  - studies
+
+exclude: ~
+threshold: 50
+model: pritamdeka/S-BioBert-snli-multinli-stsb

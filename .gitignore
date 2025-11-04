@@ -1,0 +1,7 @@
+*.direnv/
+*.egg-info
+*store/
+*venv/
+*.log
+*.out
+*.sqlite3
