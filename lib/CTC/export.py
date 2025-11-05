@@ -18,34 +18,34 @@ def _load_booster(p: Path) -> lgb.Booster:
 
 def _invoke_booster(
   bst: lgb.Booster,
-  X: npt.NDArray[np.float16],
+  X: npt.NDArray[np.float64],
   params: dict[str, bool]
-) -> npt.NDArray[np.float16]:
+) -> npt.NDArray[np.float64]:
   _iter = bst.best_iteration
-  return bst.predict(X, _iter, **params).astype(np.float16)
+  return bst.predict(X, _iter, **params).astype(np.float64)
 
 def predictions(
   booster: Path,
-  X: npt.NDArray[np.float16],
+  X: npt.NDArray[np.float64],
   params: dict[str, bool] = {"raw_score": True}
-) -> npt.NDArray[np.float16]:
+) -> npt.NDArray[np.float64]:
   bst: lgb.Booster = _load_booster(booster)
   return _invoke_booster(bst, X, params).ravel()
 
 def predictions_with_shap(
   booster: Path,
-  X: npt.NDArray[np.float16],
+  X: npt.NDArray[np.float64],
   params: dict[str, bool] = {"raw_score": True, "pred_contrib": True}
-) -> tuple[npt.NDArray[np.float16]]:
+) -> tuple[npt.NDArray[np.float64]]:
   bst: lgb.Booster = _load_booster(booster)
-  raw: npt.NDArray[np.float16] = _invoke_booster(bst, X, params)
-  preds: npt.NDArray[np.float16] = raw[0, -1].ravel()
-  shap_values: npt.NDArray[np.float16] = raw[:, :-1].ravel()
+  raw: npt.NDArray[np.float64] = _invoke_booster(bst, X, params)
+  preds: npt.NDArray[np.float64] = raw[0, -1].ravel()
+  shap_values: npt.NDArray[np.float64] = raw[:, :-1].ravel()
   return preds, shap_values
 
 def relational_database(
   model_store: Path,
-  preds: npt.NDArray[np.float16],
+  preds: npt.NDArray[np.float64],
   trials: npt.NDArray[np.string_]
 ) -> Path:
   save: Path = model_store / "trials.sqlite3"
@@ -56,7 +56,7 @@ def relational_database(
 
 def histogram_kde_plot(
   model_store: Path,
-  preds: npt.NDArray[np.float16],
+  preds: npt.NDArray[np.float64],
   trials: npt.NDArray[np.string_]
 ) -> None:
   save: Path = model_store / "histogram_kde_plot.png"
@@ -68,9 +68,9 @@ def histogram_kde_plot(
 
 def roc_plot(
   model_store: Path,
-  preds: npt.NDArray[np.float16],
-  true: npt.NDArray[np.float16],
-  weight: npt.NDArray[np.float16]
+  preds: npt.NDArray[np.float64],
+  true: npt.NDArray[np.float64],
+  weight: npt.NDArray[np.float64]
 ) -> None:
   save: Path = model_store / "roc_plot.png"
   roc_auc = roc_auc_score(true, preds, sample_weight=weight)
@@ -85,12 +85,12 @@ def roc_plot(
 
 def precision_recall_plot(
   model_store: Path,
-  preds: npt.NDArray[np.float16],
-  true: npt.NDArray[np.float16],
-  weight: npt.NDArray[np.float16]
+  preds: npt.NDArray[np.float64],
+  true: npt.NDArray[np.float64],
+  weight: npt.NDArray[np.float64]
 ) -> None:
   save: Path = model_store / "precision_recall_plot.png"
-  ap: np.float16 = average_precision_score(true, preds, sample_weight=weight)
+  ap: np.float64 = average_precision_score(true, preds, sample_weight=weight)
   prec, rec, _ = precision_recall_curve(true, preds, sample_weight=weight)
   ax: sns.ax = sns.lineplot(x=prec, y=rec, color="blue", label=f"Average = {ap:.3g}")
   ax.set_xlabel(r"Recall")
@@ -100,9 +100,9 @@ def precision_recall_plot(
   plt.savefig(save, dpi=300)
 
 def shap_plot(
-  shap_values: npt.NDArray[np.float16],
+  shap_values: npt.NDArray[np.float64],
   model_store: Path,
-  X: npt.NDArray[np.float16],
+  X: npt.NDArray[np.float64],
   feature_names: npt.NDArray[np.string_]
 ) -> None:
   save: Path = model_store / "shap_plot.png"

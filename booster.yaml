@@ -1,4 +1,4 @@
-labels: /local_raid1/sgoetz/STORE/CONFIG/CT_CLASSIFER3/labels.tsv
+labels: /local_raid1/sgoetz/STORE/CONFIG/CT_CLASSIFER3/labels0.tsv
 test_size: 0.2
 seed: 87
 params:
@@ -6,16 +6,17 @@ params:
   objective: binary
   metric:
     - auc
-    - binary_logloss
+    # - average_precision
+    # - binary_logloss
   first_metric_only: true
-  learning_rate: 5e-2
-  num_leaves: 32
-  max_depth: -1
-  min_data_in_leaf: 20
+  learning_rate: 0.01
+  num_leaves: 31
+  max_depth: 12
   bagging_fraction: 0.8
+  feature_fraction: 0.2
+  feature_fraction_bynode: 0.5
+  min_data_in_leaf: 200
   bagging_freq: 1
-  feature_fraction: 0.9
-  lambda_l1: 0.0
-  lambda_l2: 0.0
-  max_bin: 63
+  lambda_l2: 5.0
+  max_bin: 15
   verbosity: -1
