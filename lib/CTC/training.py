@@ -18,12 +18,12 @@ def train_model(
 
         bst: lgb.Booster = lgb.train(
           params=params,
-          dtrain=dtrain,
+          train_set=dtrain,
           num_boost_round=5_000,
           valid_sets=[dtrain, dtest],
           valid_names=["train", "test"],
           callbacks=[
-            lgb.early_stopping(50),
+            lgb.early_stopping(100),
             lgb.log_evaluation(10)
           ]
         )
