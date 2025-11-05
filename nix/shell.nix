@@ -33,6 +33,7 @@ in {
       pkgs.datafusion-cli
       cuda.cudatoolkit
       lightgbm-gpu
+      scikit-learn
       setuptools
       matplotlib
       torch-bin
