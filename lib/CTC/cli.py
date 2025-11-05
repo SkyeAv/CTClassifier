@@ -48,7 +48,6 @@ def main(
   params["seed"] = seed
   params["device_type"] = "cuda"
   params["scale_pos_weight"] = scale_pos_weight
-  params["num_gpu"] = 4
 
   booster: Path = train_model(dtrain, dtest, params, model_store)
   #X, trials = prodset(_dataset)
