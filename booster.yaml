@@ -1,6 +1,7 @@
-labels: /local_raid1/sgoetz/STORE/CONFIG/CT_CLASSIFER3/labels0.tsv
+labels: /local_raid1/sgoetz/STORE/CONFIG/CTC/JACKIE_MATCHED_TRIALS.tsv
+features: 2048
 test_size: 0.2
-seed: 87
+seed: 75
 params:
   boosting: gbdt
   objective: binary

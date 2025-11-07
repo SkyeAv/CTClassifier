@@ -24,6 +24,26 @@ let
       cudatoolkit
     ]);
   });
+  torchdr-gpu = py.buildPythonPackage rec {
+    pname = "torchdr";
+    version = "0.3";
+    pyproject = true;
+    src = pkgs.fetchPypi {
+      inherit pname version;
+      sha256 = "sha256-623xLK2bf7Vr8BpzemcMSk5n0yD2VjBZ4vjsy6OQTX0=";
+    };
+    build-system = with py; [
+      setuptools-scm
+      setuptools
+      wheel
+    ];
+    propagatedBuildInputs = with py; [
+      scikit-learn
+      torch-bin
+      numpy
+    ];
+    doCheck = false;
+  };
 in {
   devShells.default = pkgs.mkShell {
     name = "ctc-shell";
@@ -34,8 +54,10 @@ in {
       cuda.cudatoolkit
       lightgbm-gpu
       scikit-learn
+      torchdr-gpu
       setuptools
       matplotlib
+      pkgs.faiss
       torch-bin
       seaborn
       python
@@ -43,6 +65,7 @@ in {
       pyyaml
       polars
       pandas
+      faiss
       numpy
       typer
       wheel

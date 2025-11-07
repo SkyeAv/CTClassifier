@@ -34,8 +34,10 @@ def main(
   seed: int = booster_cfg["seed"]
   dtrain, dtest, scale_pos_weight, label_hash, feature_names = labelset(
     _dataset,
+    dataset_hash,
     booster_cfg["labels"],
     booster_cfg["test_size"],
+    booster_cfg["features"],
     seed
   )
 

@@ -7,6 +7,7 @@ from CTC.store import STORE
 from typing import Optional
 import numpy.typing as npt
 from pathlib import Path
+from torchdr import UMAP
 import lightgbm as lgb
 from typing import Any
 import polars as pl
@@ -31,6 +32,15 @@ def _read_snapshot(archive: Path, tables: list[str]) -> pl.DataFrame:
     dfs.append(df)
 
   return reduce(_inner_join, dfs)
+
+def _remove_device_trials(
+  df: pl.DataFrame,
+  fda: str = "studies__is_fda_regulated_device",
+  unapproved: str = "studies__is_unapproved_device"
+) -> pl.DataFrame:
+  _expr_FDA: pl.Expr = (pl.col(fda) != "t") | (pl.col(fda).is_null())
+  _expr_unapproved: pl.Expr = (pl.col(unapproved) != "t") | (pl.col(unapproved).is_null())
+  return df.filter(_expr_FDA & _expr_unapproved)
 
 def _exclude(df: pl.DataFrame, exclude: list[str]) -> pl.DataFrame:
   return df.select(pl.exclude(exclude))
@@ -98,17 +108,6 @@ def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_ha
 
   return df
 
-def _remove_device_trials(df: pl.DataFrame) -> pl.DataFrame:
-  return df.filter(
-    (
-      (pl.col("studies__is_fda_regulated_device") != "t") |
-      (pl.col("studies__is_fda_regulated_device").is_null())
-    ) & (
-      (pl.col("studies__is_unapproved_device") != "t") |
-      (pl.col("studies__is_unapproved_device").is_null())
-    )
-  )
-
 def dataset(cfg: dict[str, Any]) -> tuple[pl.DataFrame, str]:
   dataset_hash: str = gen_hash(cfg)
   store: Path = STORE / "DATASETS" / (dataset_hash + ".parquet")
@@ -118,22 +117,16 @@ def dataset(cfg: dict[str, Any]) -> tuple[pl.DataFrame, str]:
     dataset: pl.DataFrame = pl.read_parquet(store)
   else:
     dataset = _read_snapshot(Path(cfg["archive"]), cfg["tables"])
-    print("init", dataset.shape)
     dataset = _remove_device_trials(dataset)
-    print("no device", dataset.shape)
 
     exclude: Optional[list[str]] = cfg.get("exclude")
     if exclude:
       dataset = _exclude(dataset, exclude)
-      print("exclude", dataset.shape)
 
     numeric, embeddings, hot_one = _col_lists(dataset, cfg["threshold"])
     dataset = _z_scores(dataset, numeric)
-    print("z_score", dataset.shape)
     dataset = _hot_one_encode(dataset, hot_one)
-    print("hot_one", dataset.shape)
     dataset = _embed_texts(dataset, embeddings, cfg["model"], dataset_hash)
-    print("embed", dataset.shape)
     dataset.write_parquet(store)
 
   return dataset, dataset_hash
@@ -141,7 +134,28 @@ def dataset(cfg: dict[str, Any]) -> tuple[pl.DataFrame, str]:
 def _load_lables(p: Path) -> pl.DataFrame:
   return pl.read_csv(p, has_header=True, separator="\t")
 
-def labelset(df: pl.DataFrame, labels: Path, test_size: float, seed: int) -> tuple[lgb.Dataset, float, str, npt.NDArray[np.string_]]:
+def _reduce_noise(X: npt.NDArray[np.float64], features: int, dataset_hash: str) -> pl.DataFrame:
+  torchdr_hash: str = gen_hash(str(features) + dataset_hash)
+  store: Path = STORE / "DATASETS" / (torchdr_hash + ".pt")
+
+  if store.is_file():
+    T: torch.Tensor = torch.load(store)
+  else:
+    model: UMAP = UMAP(n_components=features, device="cuda", compile=True, backend="faiss")
+    T: torch.Tensor = torch.from_numpy(X).to("cuda")
+    T = model.fit_transform(T)
+    torch.save(T, store)
+
+  return T.numpy().astype(np.float64)
+
+def labelset(
+  df: pl.DataFrame,
+  dataset_hash: str,
+  labels: Path,
+  test_size: float,
+  features: int,
+  seed: int
+) -> tuple[lgb.Dataset, float, str, npt.NDArray[np.string_]]:
   lf: pl.DataFrame = _load_lables(labels)
   label_hash: str = gen_hash(lf.to_init_repr())
   labelset: pl.DataFrame = _inner_join(df, lf)
@@ -151,6 +165,7 @@ def labelset(df: pl.DataFrame, labels: Path, test_size: float, seed: int) -> tup
   feature_names: npt.NDArray[np.string_] = np.array(df.columns) 
 
   X: npt.NDArray[np.float64] = X_frame.to_numpy().astype(np.float64)
+  X = _reduce_noise(X, features, dataset_hash)
   y: npt.NDArray[np.float64] = labelset.select("label").to_numpy().astype(np.float64).ravel()
   w: npt.NDArray[np.float64] = labelset.select("weight").to_numpy().astype(np.float64).ravel()
 
