@@ -71,6 +71,12 @@ def _z_scores(df: pl.DataFrame, numeric: list[str]) -> pl.DataFrame:
 def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
   return df.to_dummies(columns=hot_one, separator="__")
 
+def _reduce_noise(X: npt.NDArray[np.float64], features: int = 32) -> npt.NDArray[np.float64]:
+  model: UMAP = UMAP(n_components=features, device="cuda", backend="faiss")
+  T: torch.Tensor = torch.from_numpy(X).to("cuda")
+  T = model.fit_transform(T)
+  return T.numpy().astype(np.float64)
+
 def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_hash: str) -> pl.DataFrame:
   model: SentenceTransformer = SentenceTransformer(model)
   model.half()
@@ -99,6 +105,7 @@ def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_ha
           show_progress_bar=False
         ).astype(np.float64)
 
+      out = _reduce_noise(out)
       shape: int = len(out[0])
       colnames: list[str] = [f"{col}__bert_{i}" for i in range(shape)]
       temp = pl.from_numpy(out, schema=colnames)
@@ -134,30 +141,15 @@ def dataset(cfg: dict[str, Any]) -> tuple[pl.DataFrame, str]:
 def _load_lables(p: Path) -> pl.DataFrame:
   return pl.read_csv(p, has_header=True, separator="\t")
 
-def _reduce_noise(X: npt.NDArray[np.float64], features: int, dataset_hash: str) -> pl.DataFrame:
-  torchdr_hash: str = gen_hash(str(features) + dataset_hash)
-  store: Path = STORE / "DATASETS" / (torchdr_hash + ".pt")
-
-  if store.is_file():
-    T: torch.Tensor = torch.load(store)
-  else:
-    model: UMAP = UMAP(n_components=features, device="cuda", compile=True, backend="faiss")
-    T: torch.Tensor = torch.from_numpy(X).to("cuda")
-    T = model.fit_transform(T)
-    torch.save(T, store)
-
-  return T.numpy().astype(np.float64)
-
 def labelset(
   df: pl.DataFrame,
   dataset_hash: str,
   labels: Path,
   test_size: float,
-  features: int,
   seed: int
 ) -> tuple[lgb.Dataset, float, str, npt.NDArray[np.string_]]:
   lf: pl.DataFrame = _load_lables(labels)
-  label_hash: str = gen_hash(lf.to_init_repr())
+  label_hash: str = gen_hash(str(lf.to_init_repr()) + dataset_hash)
   labelset: pl.DataFrame = _inner_join(df, lf)
 
   exclude: list[str] = ["nct_id", "label", "weight"]
@@ -165,7 +157,6 @@ def labelset(
   feature_names: npt.NDArray[np.string_] = np.array(df.columns) 
 
   X: npt.NDArray[np.float64] = X_frame.to_numpy().astype(np.float64)
-  X = _reduce_noise(X, features, dataset_hash)
   y: npt.NDArray[np.float64] = labelset.select("label").to_numpy().astype(np.float64).ravel()
   w: npt.NDArray[np.float64] = labelset.select("weight").to_numpy().astype(np.float64).ravel()
 

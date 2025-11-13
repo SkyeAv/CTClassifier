@@ -37,7 +37,6 @@ def main(
     dataset_hash,
     booster_cfg["labels"],
     booster_cfg["test_size"],
-    booster_cfg["features"],
     seed
   )
 
