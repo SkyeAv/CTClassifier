@@ -98,7 +98,7 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) 
   out: torch.Tensor = torch.cat(chunks, dim=0)
   del chunks
   torch.cuda.synchronize(device)
-  return batch_iter, out
+  return batch_iter, out.contiguous()
 
 @torch.no_grad()
 def _median_pairwise_squared_distance(T: torch.Tensor) -> float:
@@ -148,7 +148,7 @@ def _kpca(
   return out.numpy().astype(np.float64)
 
 def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
-  batch_iter, T = _ipca(X).contiguous()
+  batch_iter, T = _ipca(X)
   return _kpca(batch_iter, T)
 
 def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_hash: str) -> pl.DataFrame:
