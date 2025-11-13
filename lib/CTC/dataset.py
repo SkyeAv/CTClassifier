@@ -10,7 +10,6 @@ from CTC.store import STORE
 from typing import Optional
 import numpy.typing as npt
 from pathlib import Path
-from torchdr import UMAP
 import lightgbm as lgb
 from typing import Any
 import polars as pl
