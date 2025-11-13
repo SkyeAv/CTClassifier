@@ -76,20 +76,18 @@ def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
 def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) -> torch.Tensor:
   samples, features = X.shape
   batch: int = (5 * features)
-  batch_iter = range(0, samples, batch)
   ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
+  batch_iter = ipca.gen_batches(n=samples, batch_size=batch, min_batch_size=hidden)
 
-  for start in batch_iter:
-    stop = min((start + batch, samples))
-    xb: torch.Tensor = torch.from_numpy(X[start:stop]).to(device, non_blocking=True)
+  for sl in batch_iter:
+    xb: torch.Tensor = torch.from_numpy(X[sl]).to(device, non_blocking=True)
     ipca.partial_fit(xb)
     del xb
     torch.cuda.synchronize(device)
 
   chunks: list[torch.Tensor] = []
-  for start in batch_iter:
-    stop = min((start + batch), samples)
-    xb: torch.Tensor = torch.from_numpy(X[start:stop]).to(device, non_blocking=True)
+  for sl in batch_iter:
+    xb: torch.Tensor = torch.from_numpy(X[sl]).to(device, non_blocking=True)
     T = ipca.transform(xb)
     chunks.append(T)
     del xb
