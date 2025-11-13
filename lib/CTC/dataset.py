@@ -74,7 +74,7 @@ def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
   return df.to_dummies(columns=hot_one, separator="__")
 
 @torch.no_grad()
-def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) -> torch.Tensor:
+def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) -> tuple[list[slice], torch.Tensor]:
   samples, features = X.shape
   batch: int = (5 * features)
   ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
@@ -119,11 +119,15 @@ def _kpca(
   hidden: int = 32
 ) -> torch.Tensor:
   n, _ = T.shape
-  landmarks_idx: torch.Tensor = torch.randperm(n, device="cpu")[:n_landmarks]
+  landmarks_idx: torch.Tensor = torch.randperm(n, device=device)[:n_landmarks]
   landmarks: torch.Tensor = T[landmarks_idx].to(device, non_blocking=True)
+  del landmarks_idx
+  torch.cuda.synchronize(device)
 
-  samples_idx: torch.Tensor = torch.randperm(n, device="cpu")[:n_samples]
+  samples_idx: torch.Tensor = torch.randperm(n, device=device)[:n_samples]
   samples: torch.Tensor = landmarks[samples_idx]
+  del samples_idx
+  torch.cuda.synchronize(device)
 
   distance: float = _median_pairwise_squared_distance(samples)
   sigma: float = 0.5 * distance ** 0.5
