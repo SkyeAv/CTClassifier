@@ -134,8 +134,8 @@ def _kpca(
   distance: float = _median_pairwise_squared_distance(samples, device)
   sigma: float = 0.5 * distance ** 0.5
 
-  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, zero_diag=True, device=device, backend=backend, _pre_processed=True)
-  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device, nodiag=True)
+  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, device=device, backend=backend, _pre_processed=True)
+  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device)
   kpca.fit(landmarks)
 
   chunks: list[torch.Tensor] = []
