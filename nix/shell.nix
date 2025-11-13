@@ -44,6 +44,39 @@ let
     ];
     doCheck = false;
   };
+  keopscore-gpu = py.buildPythonPackage rec {
+    pname = "keopscore";
+    version = "2.3";
+    format = "setuptools";
+    src = pkgs.fetchPypi {
+      inherit pname version;
+      sha256 = "sha256-6KcAwi7+5Zp3I+11FsLYirFDoRKQ3SOwfre7ocnRb+8=";
+    };
+    nativeBuildInputs = with py; [
+      setuptools
+      wheel
+    ];
+    doCheck = false;
+  };
+  pykeops-gpu = py.buildPythonPackage rec {
+    pname = "pykeops";
+    version = "2.3";
+    format = "setuptools";
+    src = pkgs.fetchPypi {
+      inherit pname version;
+      sha256 = "sha256-RY+neYXv0hYb6ccZ6N1B5JVSbNc10yYq7AmQJQX1vbo=";
+    };
+    nativeBuildInputs = with py; [
+      setuptools
+      pybind11
+      wheel
+    ];
+    propagatedBuildInputs = with py; [
+      keopscore-gpu
+      numpy
+    ];
+    doCheck = false;
+  };
 in {
   devShells.default = pkgs.mkShell {
     name = "ctc-shell";
@@ -52,12 +85,13 @@ in {
       sentence-transformers
       pkgs.datafusion-cli
       cuda.cudatoolkit
+      keopscore-gpu
       lightgbm-gpu
       scikit-learn
       torchdr-gpu
+      pykeops-gpu
       setuptools
       matplotlib
-      pkgs.faiss
       torch-bin
       seaborn
       python
@@ -65,7 +99,6 @@ in {
       pyyaml
       polars
       pandas
-      faiss
       numpy
       typer
       wheel

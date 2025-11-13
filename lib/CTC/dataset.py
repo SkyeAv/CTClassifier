@@ -74,7 +74,7 @@ def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
   return df.to_dummies(columns=hot_one, separator="__")
 
 @torch.no_grad()
-def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) -> tuple[list[slice], torch.Tensor]:
+def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 32) -> tuple[list[slice], torch.Tensor]:
   samples, features = X.shape
   batch: int = (5 * features)
   ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
@@ -96,50 +96,52 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) 
     torch.cuda.synchronize(device)
 
   out: torch.Tensor = torch.cat(chunks, dim=0)
-  out = torch.nan_to_num(out, nan=0.0)
   del chunks
   torch.cuda.synchronize(device)
   return batch_iter, out.contiguous()
 
 @torch.no_grad()
-def _median_pairwise_squared_distance(T: torch.Tensor) -> float:
+def _median_pairwise_squared_distance(T: torch.Tensor, device: str) -> float:
   distances: torch.Tensor = torch.cdist(T, T, p=2) ** 2
   median_distance: float = float(torch.median(distances[distances > 0]).item())
   del distances
+  torch.cuda.synchronize(device)
+
   return median_distance
 
 @torch.no_grad()
 def _kpca(
   batch_iter: list[slice],
   T: torch.Tensor,
-  device: str = "cuda:2",
-  backend: str = "faiss",
-  n_landmarks: int = 50_000,
+  device: str = "cuda:1",
+  backend: str = "keops",
+  n_landmarks: int = 30_000,
   n_samples: int = 10_000,
-  hidden: int = 32
+  hidden: int = 16
 ) -> torch.Tensor:
-  n, _ = T.shape
+  n: int = T.size(0)
   landmarks_idx: torch.Tensor = torch.randperm(n, device=device)[:n_landmarks]
-  landmarks: torch.Tensor = T[landmarks_idx].to(device, non_blocking=True)
+  landmarks: torch.Tensor = T[landmarks_idx]
   del landmarks_idx
   torch.cuda.synchronize(device)
 
+  n = landmarks.size(0)
   samples_idx: torch.Tensor = torch.randperm(n, device=device)[:n_samples]
   samples: torch.Tensor = landmarks[samples_idx]
   del samples_idx
   torch.cuda.synchronize(device)
 
-  distance: float = _median_pairwise_squared_distance(samples)
+  distance: float = _median_pairwise_squared_distance(samples, device)
   sigma: float = 0.5 * distance ** 0.5
 
   affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, zero_diag=True, device=device, backend=backend, _pre_processed=True)
-  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device, backend=backend, nodiag=True)
+  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device, nodiag=True)
   kpca.fit(landmarks)
 
   chunks: list[torch.Tensor] = []
   for sl in batch_iter:
     xb: torch.Tensor = T[sl].to(device, non_blocking=True)
-    T = kpca.tranform(xb)
+    T = kpca.transform(xb)
     chunks.append(T)
     del xb
     del T
@@ -150,9 +152,10 @@ def _kpca(
   del landmarks
   del samples
   torch.cuda.synchronize(device)
-  return out.numpy().astype(np.float64)
+  return out.detach().to("cpu").numpy().astype(np.float64)
 
 def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+  X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
   batch_iter, T = _ipca(X)
   return _kpca(batch_iter, T)
 
