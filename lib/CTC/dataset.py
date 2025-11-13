@@ -1,8 +1,10 @@
 from __future__ import annotations
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
+from torchdr import GaussianAffinity
 from torchdr import IncrementalPCA
 from CTC.store import gen_hash
+from torchdr import KernelPCA
 from functools import reduce
 from CTC.store import STORE
 from typing import Optional
@@ -91,22 +93,64 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) 
     T = ipca.transform(xb)
     chunks.append(T)
     del xb
+    del T
     torch.cuda.synchronize(device)
 
   out: torch.Tensor = torch.cat(chunks, dim=0)
   del chunks
   torch.cuda.synchronize(device)
-  return out
+  return batch_iter, out
 
 @torch.no_grad()
-def _umap(T: torch.Tensor, device: str = "cuda:2", hidden: int = 32) -> torch.Tensor:
-  umap: UMAP = UMAP(n_components=hidden, device=device, backend="faiss")
-  T = umap.fit_transform(T.to(device))
-  return T.numpy().astype(np.float64)
+def _median_pairwise_squared_distance(T: torch.Tensor) -> float:
+  distances: torch.Tensor = torch.cdist(T, T, p=2) ** 2
+  median_distance: float = float(torch.median(distances[distances > 0]).item())
+  del distances
+  return median_distance
+
+@torch.no_grad()
+def _kpca(
+  batch_iter: list[slice],
+  T: torch.Tensor,
+  device: str = "cuda:2",
+  backend: str = "faiss",
+  n_landmarks: int = 50_000,
+  n_samples: int = 10_000,
+  hidden: int = 32
+) -> torch.Tensor:
+  n, _ = T.shape
+  landmarks_idx: torch.Tensor = torch.randperm(n, device="cpu")[:n_landmarks]
+  landmarks: torch.Tensor = T[landmarks_idx].to(device, non_blocking=True)
+
+  samples_idx: torch.Tensor = torch.randperm(n, device="cpu")[:n_samples]
+  samples: torch.Tensor = landmarks[samples_idx]
+
+  distance: float = _median_pairwise_squared_distance(samples)
+  sigma: float = 0.5 * distance ** 0.5
+
+  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, zero_diag=True, device=device, backend=backend)
+  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device, backend=backend, nodiag=True)
+  kpca.fit(landmarks)
+
+  chunks: list[torch.Tensor] = []
+  for sl in batch_iter:
+    xb: torch.Tensor = T[sl].to(device, non_blocking=True)
+    T = kpca.tranform(xb)
+    chunks.append(T)
+    del xb
+    del T
+    torch.cuda.synchronize(device)
+
+  out: torch.Tensor = torch.cat(chunks, dim=0)
+  del chunks
+  del landmarks
+  del samples
+  torch.cuda.synchronize(device)
+  return out.numpy().astype(np.float64)
 
 def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
-  T: torch.Tensor = _ipca(X)
-  return _umap(T)
+  batch_iter, T = _ipca(X).contiguous()
+  return _kpca(batch_iter, T)
 
 def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_hash: str) -> pl.DataFrame:
   model: SentenceTransformer = SentenceTransformer(model)
