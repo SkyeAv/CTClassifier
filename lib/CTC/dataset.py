@@ -77,7 +77,7 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) 
   samples, features = X.shape
   batch: int = (5 * features)
   ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
-  batch_iter = ipca.gen_batches(n=samples, batch_size=batch, min_batch_size=hidden)
+  batch_iter: list[slice] = list(ipca.gen_batches(n=samples, batch_size=batch, min_batch_size=hidden))
 
   for sl in batch_iter:
     xb: torch.Tensor = torch.from_numpy(X[sl]).to(device, non_blocking=True)
