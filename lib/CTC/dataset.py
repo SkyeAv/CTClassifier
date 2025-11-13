@@ -1,6 +1,7 @@
 from __future__ import annotations
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
+from torchdr import IncrementalPCA
 from CTC.store import gen_hash
 from functools import reduce
 from CTC.store import STORE
@@ -71,11 +72,43 @@ def _z_scores(df: pl.DataFrame, numeric: list[str]) -> pl.DataFrame:
 def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
   return df.to_dummies(columns=hot_one, separator="__")
 
-def _reduce_noise(X: npt.NDArray[np.float64], features: int = 32) -> npt.NDArray[np.float64]:
-  model: UMAP = UMAP(n_components=features, device="cuda", backend="faiss")
-  T: torch.Tensor = torch.from_numpy(X).to("cuda")
-  T = model.fit_transform(T)
+@torch.no_grad()
+def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) -> torch.Tensor:
+  samples, features = X.shape
+  batch: int = (5 * features)
+  batch_iter = range(0, samples, batch)
+  ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
+
+  for start in batch_iter:
+    stop = min((start + batch, samples))
+    xb: torch.Tensor = torch.from_numpy(X[start:stop]).to(device, non_blocking=True)
+    ipca.partial_fit(xb)
+    del xb
+    torch.cuda.synchronize(device)
+
+  chunks: list[torch.Tensor] = []
+  for start in batch_iter:
+    stop = min((start + batch), samples)
+    xb: torch.Tensor = torch.from_numpy(X[start:stop]).to(device, non_blocking=True)
+    T = ipca.transform(xb)
+    chunks.append(T)
+    del xb
+    torch.cuda.synchronize(device)
+
+  out: torch.Tensor = torch.cat(chunks, dim=0)
+  del chunks
+  torch.cuda.synchronize(device)
+  return out
+
+@torch.no_grad()
+def _umap(T: torch.Tensor, device: str = "cuda:2", hidden: int = 32) -> torch.Tensor:
+  umap: UMAP = UMAP(n_components=hidden, device=device, backend="faiss")
+  T = umap.fit_transform(T.to(device))
   return T.numpy().astype(np.float64)
+
+def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
+  T: torch.Tensor = _ipca(X)
+  return _umap(T)
 
 def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_hash: str) -> pl.DataFrame:
   model: SentenceTransformer = SentenceTransformer(model)
@@ -103,7 +136,7 @@ def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_ha
           chunk_size=16_384,
           convert_to_numpy=True,
           show_progress_bar=False
-        ).astype(np.float64)
+        ).astype(np.float32)
 
       out = _reduce_noise(out)
       shape: int = len(out[0])
