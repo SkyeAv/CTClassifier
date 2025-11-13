@@ -96,6 +96,7 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 64) 
     torch.cuda.synchronize(device)
 
   out: torch.Tensor = torch.cat(chunks, dim=0)
+  out = torch.nan_to_num(out, nan=0.0)
   del chunks
   torch.cuda.synchronize(device)
   return batch_iter, out.contiguous()
@@ -127,7 +128,7 @@ def _kpca(
   distance: float = _median_pairwise_squared_distance(samples)
   sigma: float = 0.5 * distance ** 0.5
 
-  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, zero_diag=True, device=device, backend=backend)
+  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, zero_diag=True, device=device, backend=backend, _pre_processed=True)
   kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device, backend=backend, nodiag=True)
   kpca.fit(landmarks)
 
