@@ -149,6 +149,7 @@ def _train(
 ) -> None:
   for sl in batch_iter:
     xb: torch.Tensor = T[sl]
+    optimizer.zero_grad()
     xb_hat: torch.Tensor = model.forward(xb)
     loss: torch.Tensor = F.mse_loss(xb_hat, xb, reduction="mean")
     del xb
@@ -194,14 +195,12 @@ class EarlyStopping:
   def step(
     self: Self,
     loss: float,
-    model: AutoEncoder
   ) -> bool:
     improved: bool = (self.best - loss) > self.min_delta
 
     if improved:
       self.best = loss
       self.wait = 0
-      torch.save(model.state_dict(), self.checkpoint)
     else:
       self.wait += 1
 
@@ -238,14 +237,14 @@ def _autoencoder(
   lr: float = 1e-4,
   decay: float = 0.0
 ) -> npt.NDArray[np.float64]:
-  model: AutoEncoder = AutoEncoder()
+  model: AutoEncoder = AutoEncoder().to(device)
   stopping = EarlyStopping()
   optimizer: optim.AdamW = optim.AdamW(
     model.parameters(),
     lr=lr,
     weight_decay=decay
   )
-  scheduler: optim.lr_scheduler = optim.lr_scheduler.ReduceLROnPlatea(
+  scheduler: optim.lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
     mode="min",
     factor=0.5,
@@ -263,9 +262,9 @@ def _autoencoder(
       break
 
   out: torch.Tensor = _encode(model, device, batch_iter, T)
-  return out.detach().to("cpu").numpy().astype(np.float64)
+  return out.detach().to("cpu").numpy().astype(np.float32)
 
-def _reduce_noise(X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float32]:
   X = np.nan_to_num(X, 0.0, 0.0, 0.0)
   batch_iter, T = _ipca(X)
   return _autoencoder(batch_iter, T)
@@ -296,7 +295,7 @@ def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_ha
           chunk_size=16_384,
           convert_to_numpy=True,
           show_progress_bar=False
-        ).astype(np.float64)
+        ).astype(np.float32)
 
       out = _reduce_noise(out)
       shape: int = len(out[0])
