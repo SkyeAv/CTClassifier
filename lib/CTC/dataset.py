@@ -1,17 +1,21 @@
 from __future__ import annotations
 from sentence_transformers import SentenceTransformer
 from sklearn.model_selection import train_test_split
-from torchdr import GaussianAffinity
+from torch.nn.utils import clip_grad_norm_
 from torchdr import IncrementalPCA
+from dataclasses import dataclass
+import torch.nn.functional as F
 from CTC.store import gen_hash
-from torchdr import KernelPCA
 from functools import reduce
 from CTC.store import STORE
 from typing import Optional
 import numpy.typing as npt
 from pathlib import Path
+from typing import Self
+from torch import optim
 import lightgbm as lgb
 from typing import Any
+from torch import nn
 import polars as pl
 import numpy as np
 import torch
@@ -74,7 +78,7 @@ def _hot_one_encode(df: pl.DataFrame, hot_one: list[str]) -> pl.DataFrame:
   return df.to_dummies(columns=hot_one, separator="__")
 
 @torch.no_grad()
-def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 32) -> tuple[list[slice], torch.Tensor]:
+def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 16) -> tuple[list[slice], torch.Tensor]:
   samples, features = X.shape
   batch: int = (5 * features)
   ipca: IncrementalPCA = IncrementalPCA(n_components=hidden, device=device, lowrank=True)
@@ -100,65 +104,171 @@ def _ipca(X: npt.NDArray[np.float32], device: str = "cuda:1", hidden: int = 32) 
   torch.cuda.synchronize(device)
   return batch_iter, out.contiguous()
 
-@torch.no_grad()
-def _median_pairwise_squared_distance(T: torch.Tensor, device: str) -> float:
-  distances: torch.Tensor = torch.cdist(T, T, p=2) ** 2
-  median_distance: float = float(torch.median(distances[distances > 0]).item())
-  del distances
-  torch.cuda.synchronize(device)
+class AutoEncoder(nn.Module):
+  def __init__(
+    self: Self,
+    indim: int = 16,
+    hidden1: int = 24,
+    hidden2: int = 12,
+    outdim: int = 8,
+    dropout: float = 0.1
+  ) -> None:
+    super().__init__()
+    self.encoder = nn.Sequential(
+      nn.Linear(indim, hidden1),
+      nn.Dropout(dropout),
+      nn.GELU(),
+      nn.Linear(hidden1, hidden2),
+      nn.GELU(),
+      nn.Linear(hidden2, outdim)
+    )
+    self.decoder = nn.Sequential(
+      nn.Linear(outdim, hidden2),
+      nn.GELU(),
+      nn.Linear(hidden2, hidden1),
+      nn.GELU(),
+      nn.Linear(hidden1, indim),
+    )
+    return None
 
-  return median_distance
+  def encode(self: Self, x: torch.Tensor) -> torch.Tensor:
+    return self.encoder(x)
 
-@torch.no_grad()
-def _kpca(
+  def forward(self: Self, x: torch.Tensor) -> torch.Tensor:
+    z = self.encoder(x)
+    x_hat = self.decoder(z) 
+    return x_hat
+
+def _train(
+  model: AutoEncoder,
+  optimizer: optim.AdamW,
+  device: str,
   batch_iter: list[slice],
   T: torch.Tensor,
-  device: str = "cuda:1",
-  backend: str = "keops",
-  n_landmarks: int = 8_000,
-  n_samples: int = 2_000,
-  hidden: int = 16
-) -> torch.Tensor:
-  n: int = T.size(0)
-  landmarks_idx: torch.Tensor = torch.randperm(n, device=device)[:n_landmarks]
-  landmarks: torch.Tensor = T[landmarks_idx]
-  del landmarks_idx
-  torch.cuda.synchronize(device)
-
-  n = landmarks.size(0)
-  samples_idx: torch.Tensor = torch.randperm(n, device=device)[:n_samples]
-  samples: torch.Tensor = landmarks[samples_idx]
-  del samples_idx
-  torch.cuda.synchronize(device)
-
-  torch.backends.cuda.preferred_linalg_library("magma")
-  distance: float = _median_pairwise_squared_distance(samples, device)
-  sigma: float = 0.5 * distance ** 0.5
-
-  affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, device=device, backend=backend, _pre_processed=True)
-  kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device)
-  _ = kpca.fit_transform(landmarks)
-
-  chunks: list[torch.Tensor] = []
+  norm: float = 1.0
+) -> None:
   for sl in batch_iter:
-    xb: torch.Tensor = T[sl].to(device, non_blocking=True)
-    T = kpca.transform(xb)
-    chunks.append(T)
+    xb: torch.Tensor = T[sl]
+    xb_hat: torch.Tensor = model.forward(xb)
+    loss: torch.Tensor = F.mse_loss(xb_hat, xb, reduction="mean")
     del xb
-    del T
+    del xb_hat
+
+    loss.backward()
+    clip_grad_norm_(model.parameters(), max_norm=norm)
+    optimizer.step()
+    torch.cuda.synchronize(device)
+
+@torch.inference_mode()
+def _test(
+  model: AutoEncoder,
+  device: str,
+  batch_iter: list[slice],
+  T: torch.Tensor
+) -> float:
+  total_loss: float = 0.0
+  n: int = 0
+
+  for sl in batch_iter:
+    xb: torch.Tensor = T[sl]
+    bs: int = xb.size(0)
+    xb_hat: torch.Tensor = model.forward(xb)
+    loss: torch.Tensor = F.mse_loss(xb_hat, xb, reduction="mean")
+
+    del xb
+    del xb_hat
+    total_loss += loss.item() * bs
+    n += bs
+    torch.cuda.synchronize(device)
+
+  return total_loss / n
+
+@dataclass
+class EarlyStopping:
+  patience: int = 7
+  min_delta: float = 1e-4
+  best: float = np.inf
+  wait: int = 0
+  stopped_at: int = 0
+
+  def step(
+    self: Self,
+    loss: float,
+    model: AutoEncoder
+  ) -> bool:
+    improved: bool = (self.best - loss) > self.min_delta
+
+    if improved:
+      self.best = loss
+      self.wait = 0
+      torch.save(model.state_dict(), self.checkpoint)
+    else:
+      self.wait += 1
+
+    return self.wait > self.patience
+
+@torch.inference_mode()
+def _encode(
+  model: AutoEncoder,
+  device: str,
+  batch_iter: list[slice],
+  T: torch.Tensor
+) -> torch.Tensor:
+  chunks: list[torch.Tensor] = []
+
+  for sl in batch_iter:
+    xb: torch.Tensor = T[sl]
+    xb_hat: torch.Tensor = model.encode(xb)
+    chunks.append(xb_hat)
+
+    del xb
+    del xb_hat
     torch.cuda.synchronize(device)
 
   out: torch.Tensor = torch.cat(chunks, dim=0)
   del chunks
-  del landmarks
-  del samples
   torch.cuda.synchronize(device)
+  return out
+
+def _autoencoder(
+  batch_iter: list[slice],
+  T: torch.Tensor,
+  device: str = "cuda:1",
+  epochs: int = 500,
+  lr: float = 1e-4,
+  decay: float = 0.0
+) -> npt.NDArray[np.float64]:
+  model: AutoEncoder = AutoEncoder()
+  stopping = EarlyStopping()
+  optimizer: optim.AdamW = optim.AdamW(
+    model.parameters(),
+    lr=lr,
+    weight_decay=decay
+  )
+  scheduler: optim.lr_scheduler = optim.lr_scheduler.ReduceLROnPlatea(
+    optimizer,
+    mode="min",
+    factor=0.5,
+    patience=5,
+    threshold=1e-5,
+    min_lr=1e-7
+  )
+
+  for _ in range(epochs):
+    _train(model, optimizer, device, batch_iter, T)
+    test: float = _test(model, device, batch_iter, T)
+    scheduler.step(test)
+
+    if stopping.step(test, model):
+      break
+
+  out: torch.Tensor = _encode(model, device, batch_iter, T)
   return out.detach().to("cpu").numpy().astype(np.float64)
 
-def _reduce_noise(X: npt.NDArray[np.float32]) -> npt.NDArray[np.float64]:
-  X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+def _reduce_noise(X: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
+  X = np.nan_to_num(X, 0.0, 0.0, 0.0)
   batch_iter, T = _ipca(X)
-  return _kpca(batch_iter, T)
+  return _autoencoder(batch_iter, T)
 
 def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_hash: str) -> pl.DataFrame:
   model: SentenceTransformer = SentenceTransformer(model)
@@ -186,7 +296,7 @@ def _embed_texts(df: pl.DataFrame, embeddings: list[str], model: str, dataset_ha
           chunk_size=16_384,
           convert_to_numpy=True,
           show_progress_bar=False
-        ).astype(np.float32)
+        ).astype(np.float64)
 
       out = _reduce_noise(out)
       shape: int = len(out[0])
