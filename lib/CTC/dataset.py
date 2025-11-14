@@ -115,8 +115,8 @@ def _kpca(
   T: torch.Tensor,
   device: str = "cuda:1",
   backend: str = "keops",
-  n_landmarks: int = 30_000,
-  n_samples: int = 10_000,
+  n_landmarks: int = 8_000,
+  n_samples: int = 2_000,
   hidden: int = 16
 ) -> torch.Tensor:
   n: int = T.size(0)
@@ -131,12 +131,13 @@ def _kpca(
   del samples_idx
   torch.cuda.synchronize(device)
 
+  torch.backends.cuda.preferred_linalg_library("magma")
   distance: float = _median_pairwise_squared_distance(samples, device)
   sigma: float = 0.5 * distance ** 0.5
 
   affinity: GaussianAffinity = GaussianAffinity(sigma=sigma, device=device, backend=backend, _pre_processed=True)
   kpca = KernelPCA(affinity=affinity, n_components=hidden, device=device)
-  kpca.fit(landmarks)
+  _ = kpca.fit_transform(landmarks)
 
   chunks: list[torch.Tensor] = []
   for sl in batch_iter:
