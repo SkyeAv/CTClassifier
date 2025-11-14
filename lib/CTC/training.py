@@ -20,8 +20,8 @@ def train_model(
           params=params,
           train_set=dtrain,
           num_boost_round=5_000,
-          valid_sets=[dtrain, dtest],
-          valid_names=["train", "test"],
+          valid_sets=[dtest, dtrain],
+          valid_names=["test", "train"],
           callbacks=[
             lgb.early_stopping(100),
             lgb.log_evaluation(10)

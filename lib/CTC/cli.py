@@ -47,8 +47,9 @@ def main(
   params: dict[str, Any] = booster_cfg["params"]
   assert isinstance(params, Mapping), "05 | Booster params must be a dict"
   params["seed"] = seed
-  params["device_type"] = "cuda"
+  params["device_type"] = "cpu"
   params["scale_pos_weight"] = scale_pos_weight
+  params["num_threads"] = -1
 
   booster: Path = train_model(dtrain, dtest, params, model_store)
   #X, trials = prodset(_dataset)

@@ -258,7 +258,7 @@ def _autoencoder(
     test: float = _test(model, device, batch_iter, T)
     scheduler.step(test)
 
-    if stopping.step(test, model):
+    if stopping.step(test):
       break
 
   out: torch.Tensor = _encode(model, device, batch_iter, T)
