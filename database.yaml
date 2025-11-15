@@ -8,6 +8,7 @@ tables:
   - responsible_parties
   - studies
 
-exclude: ~
+exclude:
+  - studies__phase
 threshold: 50
 model: pritamdeka/S-BioBert-snli-multinli-stsb
