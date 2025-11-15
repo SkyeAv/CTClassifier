@@ -9,7 +9,7 @@ import sqlite3
 def relational_database(
   booster: Path,
   X: npt.NDArray[np.float16],
-  trials: npt.NDArray[np.string_],
+  trials: npt.NDArray[np.bytes_],
   save: Path
 ) -> None:
   bst: lgb.Booster = lgb.Booster(model_file=booster)

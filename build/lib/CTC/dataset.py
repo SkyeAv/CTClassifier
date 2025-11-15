@@ -142,8 +142,8 @@ def labelset(df: pl.DataFrame, labels: Path, test_size: float, seed: int) -> tup
   dtest: lgb.Dataset = lgb.Dataset(X_test, label=y_test, weight=w_test, reference=dtrain)
   return dtrain, dtest, scale_pos_weight, label_hash
 
-def prodset(df: pl.DataFrame) -> tuple[npt.NDArray[np.float16], npt.NDArray[np.string_]]:
+def prodset(df: pl.DataFrame) -> tuple[npt.NDArray[np.float16], npt.NDArray[np.bytes_]]:
   exclude: list[str] = ["nct_id"]
   X: npt.NDArray[np.float16] = df.select(pl.exclude(exclude)).to_numpy().astype(np.float16)
-  trials: npt.NDArray[np.string_] = df.select("nct_id").to_numpy().astype(np.string_).ravel()
+  trials: npt.NDArray[np.bytes_] = df.select("nct_id").to_numpy().astype(np.bytes_).ravel()
   return X, trials

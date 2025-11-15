@@ -339,14 +339,14 @@ def labelset(
   labels: Path,
   test_size: float,
   seed: int
-) -> tuple[lgb.Dataset, float, str, npt.NDArray[np.string_]]:
+) -> tuple[lgb.Dataset, float, str, npt.NDArray[np.bytes_]]:
   lf: pl.DataFrame = _load_lables(labels)
   label_hash: str = gen_hash(str(lf.to_init_repr()) + dataset_hash)
   labelset: pl.DataFrame = _inner_join(df, lf)
 
   exclude: list[str] = ["nct_id", "label", "weight"]
   X_frame: pl.DataFrame = labelset.select(pl.exclude(exclude))
-  feature_names: npt.NDArray[np.string_] = np.array(df.columns) 
+  feature_names: npt.NDArray[np.bytes_] = np.array(df.columns) 
 
   X: npt.NDArray[np.float64] = X_frame.to_numpy().astype(np.float64)
   y: npt.NDArray[np.float64] = labelset.select("label").to_numpy().astype(np.float64).ravel()
@@ -357,11 +357,11 @@ def labelset(
 
   X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(X, y, w, test_size=test_size, random_state=seed, stratify=y)
   dtrain: lgb.Dataset = lgb.Dataset(X_train, label=y_train, weight=w_train)
-  dtest: lgb.Dataset = lgb.Dataset(X_test, label=y_test, weight=w_test, reference=dtrain)
+  dtest: lgb.Dataset = lgb.Dataset(X_test, label=y_test, weight=w_test, reference=dtrain, free_raw_data=False)
   return dtrain, dtest, scale_pos_weight, label_hash, feature_names
 
-def prodset(df: pl.DataFrame) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.string_]]:
+def prodset(df: pl.DataFrame) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bytes_]]:
   exclude: list[str] = ["nct_id"]
   X: npt.NDArray[np.float64] = df.select(pl.exclude(exclude)).to_numpy().astype(np.float64)
-  trials: npt.NDArray[np.string_] = df.select("nct_id").to_numpy().astype(np.string_).ravel()
+  trials: npt.NDArray[np.bytes_] = df.select("nct_id").to_numpy().astype(np.bytes_).ravel()
   return X, trials

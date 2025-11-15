@@ -1,8 +1,8 @@
 from __future__ import annotations
+from CTC.export import histogram_density_plot
 from CTC.export import predictions_with_shap
 from CTC.export import precision_recall_plot
 from CTC.export import relational_database
-from CTC.export import histogram_kde_plot
 from CTC.training import train_model
 from collections.abc import Mapping
 from CTC.export import predictions
@@ -52,14 +52,15 @@ def main(
   params["num_threads"] = -1
 
   booster: Path = train_model(dtrain, dtest, params, model_store)
-  #X, trials = prodset(_dataset)
-  #preds: npt.NDArray[np.float64] = predictions(booster, X)
+  X, trials = prodset(_dataset)
+  preds: npt.NDArray[np.float64] = predictions(booster, X)
   #relational_database(model_store, preds, trials)
-  #histogram_kde_plot(model_store, preds, trials)
+  histogram_density_plot(model_store, preds)
 
-  #X_test: npt.NDArray[np.float64] = dtest.get_data()
-  #preds_test, shap_values = predictions_with_shap(booster, X_test)
-  #shap_plot(shap_values, model_store, X_test, feature_names)
+  dtest.construct()
+  X_test: npt.NDArray[np.float64] = dtest.get_data()
+  preds_test, shap_values = predictions_with_shap(booster, X_test)
+  shap_plot(shap_values, model_store, X_test, feature_names)
 
   #true_test: npt.NDArray[np.float64] = dtest.get_label()
   #w_test: npt.NDArray[np.float64] = dtest.get_weight()

@@ -39,14 +39,14 @@ def predictions_with_shap(
 ) -> tuple[npt.NDArray[np.float64]]:
   bst: lgb.Booster = _load_booster(booster)
   raw: npt.NDArray[np.float64] = _invoke_booster(bst, X, params)
-  preds: npt.NDArray[np.float64] = raw[0, -1].ravel()
-  shap_values: npt.NDArray[np.float64] = raw[:, :-1].ravel()
+  preds: npt.NDArray[np.float64] = raw[:, -1]
+  shap_values: npt.NDArray[np.float64] = raw[:, :-1]
   return preds, shap_values
 
 def relational_database(
   model_store: Path,
   preds: npt.NDArray[np.float64],
-  trials: npt.NDArray[np.string_]
+  trials: npt.NDArray[np.bytes_]
 ) -> Path:
   save: Path = model_store / "trials.sqlite3"
   df: pd.DataFrame = pd.DataFrame({"NCT_ID": trials, "LABEL": preds})
@@ -54,17 +54,17 @@ def relational_database(
   with sqlite3.connect(save.as_posix()) as conn:
     df.to_sql("TRUSTWORTHYNESS", conn, if_exists="replace", index=True)
 
-def histogram_kde_plot(
+def histogram_density_plot(
   model_store: Path,
   preds: npt.NDArray[np.float64],
-  trials: npt.NDArray[np.string_]
 ) -> None:
-  save: Path = model_store / "histogram_kde_plot.png"
-  ax: sns.ax = sns.histplot(x=preds, y=trials, bins=200, binrange=(0, 1), kde=True)
+  save: Path = model_store / "histogram_density_plot.png"
+  ax: sns.ax = sns.histplot(x=preds, bins=30, binrange=(0, 1), stat="density", element="step")
   ax.set_xlabel(r"LightGBM Scores")
-  ax.set_ylabel(r"Frequency")
+  ax.set_ylabel(r"Density")
   plt.tight_layout()
   plt.savefig(save, dpi=300)
+  plt.close()
 
 def roc_plot(
   model_store: Path,
@@ -82,6 +82,7 @@ def roc_plot(
   plt.legend()
   plt.tight_layout()
   plt.savefig(save, dpi=300)
+  plt.close()
 
 def precision_recall_plot(
   model_store: Path,
@@ -98,12 +99,14 @@ def precision_recall_plot(
   plt.legend()
   plt.tight_layout()
   plt.savefig(save, dpi=300)
+  plt.close()
+
 
 def shap_plot(
   shap_values: npt.NDArray[np.float64],
   model_store: Path,
   X: npt.NDArray[np.float64],
-  feature_names: npt.NDArray[np.string_]
+  feature_names: npt.NDArray[np.bytes_]
 ) -> None:
   save: Path = model_store / "shap_plot.png"
   shap.plots.violin(
@@ -111,8 +114,9 @@ def shap_plot(
     features=X,
     feature_names=feature_names,
     plot_type="layered_violin",
-    max_display=50,
+    max_display=20,
     show=False
   )
   plt.tight_layout()
-  plt.savefig(save, dpi=300)
+  plt.savefig(save, dpi=300, bbox_inches="tight", pad_inches=0.25)
+  plt.close()
