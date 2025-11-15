@@ -1,4 +1,4 @@
-labels: /local_raid1/sgoetz/STORE/CONFIG/CT_CLASSIFER3/labels0.tsv
+labels: /local_raid1/sgoetz/STORE/CONFIG/CT_CLASSIFER3/labels.tsv # /local_raid1/sgoetz/STORE/CONFIG/CTC/JACKIE_MATCHED_TRIALS.tsv 
 test_size: 0.3
 seed: 25
 params:

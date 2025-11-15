@@ -101,7 +101,6 @@ def precision_recall_plot(
   plt.savefig(save, dpi=300)
   plt.close()
 
-
 def shap_plot(
   shap_values: npt.NDArray[np.float64],
   model_store: Path,

@@ -346,7 +346,7 @@ def labelset(
 
   exclude: list[str] = ["nct_id", "label", "weight"]
   X_frame: pl.DataFrame = labelset.select(pl.exclude(exclude))
-  feature_names: npt.NDArray[np.bytes_] = np.array(df.columns) 
+  feature_names: npt.NDArray[np.bytes_] = np.array(X_frame.columns) 
 
   X: npt.NDArray[np.float64] = X_frame.to_numpy().astype(np.float64)
   y: npt.NDArray[np.float64] = labelset.select("label").to_numpy().astype(np.float64).ravel()
@@ -361,7 +361,7 @@ def labelset(
   return dtrain, dtest, scale_pos_weight, label_hash, feature_names
 
 def prodset(df: pl.DataFrame) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.bytes_]]:
-  exclude: list[str] = ["nct_id"]
+  exclude: str = "nct_id"
   X: npt.NDArray[np.float64] = df.select(pl.exclude(exclude)).to_numpy().astype(np.float64)
   trials: npt.NDArray[np.bytes_] = df.select("nct_id").to_numpy().astype(np.bytes_).ravel()
   return X, trials
